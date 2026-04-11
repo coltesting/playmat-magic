@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
-import { useLoadScript } from '@react-google-maps/api';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import Header from '@/components/Header';
 import MapView from '@/components/MapView';
 import StyleSidebar from '@/components/StyleSidebar';
@@ -9,15 +8,50 @@ import ControlPanel from '@/components/ControlPanel';
 import LoadingOverlay from '@/components/LoadingOverlay';
 import { POI, CoolPath, MapStyle, TransformResult, MapBounds } from '@/lib/types';
 
-const LIBRARIES: ('places')[] = ['places'];
-
 const PATH_COLORS = ['#facc15', '#fb923c', '#34d399', '#f472b6', '#a78bfa', '#38bdf8'];
 
+function useGoogleMaps(apiKey: string) {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    // If already loaded (e.g., script tag already exists)
+    if (window.google && window.google.maps && window.google.maps.Map) {
+      setIsLoaded(true);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&v=weekly`;
+    script.async = true;
+    script.defer = true;
+
+    script.onload = () => {
+      // Wait a tick for the API to fully initialize its internal services
+      const checkReady = () => {
+        if (window.google && window.google.maps && window.google.maps.Map) {
+          setIsLoaded(true);
+        } else {
+          setTimeout(checkReady, 50);
+        }
+      };
+      checkReady();
+    };
+
+    script.onerror = () => {
+      setLoadError(new Error('Failed to load Google Maps script'));
+    };
+
+    document.head.appendChild(script);
+  }, [apiKey]);
+
+  return { isLoaded, loadError };
+}
+
 export default function Home() {
-  const { isLoaded, loadError } = useLoadScript({
-    googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || '',
-    libraries: LIBRARIES,
-  });
+  const { isLoaded, loadError } = useGoogleMaps(
+    process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || ''
+  );
 
   // Map state
   const mapRef = useRef<google.maps.Map | null>(null);

@@ -54,46 +54,51 @@ export default function MapView({
   // Initialize the map
   useEffect(() => {
     if (!containerRef.current || mapInitializedRef.current) return;
-    if (!window.google || !window.google.maps) return;
+    if (!window.google || !window.google.maps || !window.google.maps.Map) return;
 
-    const map = new google.maps.Map(containerRef.current, {
-      center: center || defaultCenter,
-      zoom: zoom || 17,
-      mapTypeId: 'satellite',
-      disableDefaultUI: false,
-      zoomControl: true,
-      mapTypeControl: false,
-      streetViewControl: false,
-      fullscreenControl: false,
-      styles: [
-        { elementType: 'labels', stylers: [{ visibility: 'off' }] },
-      ],
-      minZoom: 14,
-      maxZoom: 20,
-    });
+    // Small delay to ensure the Google Maps internal tile services are ready
+    const initTimer = setTimeout(() => {
+      if (!containerRef.current || mapInitializedRef.current) return;
 
-    mapRef.current = map;
-    mapInitializedRef.current = true;
-    onMapReady(map);
+      const map = new google.maps.Map(containerRef.current, {
+        center: center || defaultCenter,
+        zoom: zoom || 17,
+        mapTypeId: 'satellite',
+        disableDefaultUI: false,
+        zoomControl: true,
+        mapTypeControl: false,
+        streetViewControl: false,
+        fullscreenControl: false,
+        styles: [
+          { elementType: 'labels', stylers: [{ visibility: 'off' }] },
+        ],
+        minZoom: 14,
+        maxZoom: 20,
+      });
 
-    // Force a resize after a short delay to ensure tiles load reliably
-    setTimeout(() => {
+      mapRef.current = map;
+      mapInitializedRef.current = true;
+      onMapReady(map);
+
+      // Force resize to ensure tiles load
       google.maps.event.trigger(map, 'resize');
-      map.setCenter(center || defaultCenter);
-    }, 100);
 
-    map.addListener('click', (e: google.maps.MapMouseEvent) => {
-      if (e.latLng) {
-        onMapClick(e.latLng.lat(), e.latLng.lng());
-      }
-    });
+      map.addListener('click', (e: google.maps.MapMouseEvent) => {
+        if (e.latLng) {
+          onMapClick(e.latLng.lat(), e.latLng.lng());
+        }
+      });
 
-    map.addListener('bounds_changed', () => {
-      onBoundsChanged();
-    });
+      map.addListener('bounds_changed', () => {
+        onBoundsChanged();
+      });
+    }, 200);
 
     return () => {
-      google.maps.event.clearInstanceListeners(map);
+      clearTimeout(initTimer);
+      if (mapRef.current) {
+        google.maps.event.clearInstanceListeners(mapRef.current);
+      }
     };
   }, []);
 
