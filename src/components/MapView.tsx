@@ -76,6 +76,12 @@ export default function MapView({
     mapInitializedRef.current = true;
     onMapReady(map);
 
+    // Force a resize after a short delay to ensure tiles load reliably
+    setTimeout(() => {
+      google.maps.event.trigger(map, 'resize');
+      map.setCenter(center || defaultCenter);
+    }, 100);
+
     map.addListener('click', (e: google.maps.MapMouseEvent) => {
       if (e.latLng) {
         onMapClick(e.latLng.lat(), e.latLng.lng());
