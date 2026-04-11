@@ -1,34 +1,14 @@
 'use client';
 
-import React, { useCallback, useRef, useState, useEffect } from 'react';
-import {
-  GoogleMap,
-  Marker,
-  Polyline,
-  GroundOverlay,
-} from '@react-google-maps/api';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { POI, CoolPath, TransformResult } from '@/lib/types';
-
-const mapContainerStyle = {
-  width: '100%',
-  height: '100%',
-};
 
 const defaultCenter = { lat: 40.7128, lng: -74.006 };
 
-const satelliteMapOptions: google.maps.MapOptions = {
-  mapTypeId: 'satellite',
-  disableDefaultUI: false,
-  zoomControl: true,
-  mapTypeControl: false,
-  streetViewControl: false,
-  fullscreenControl: false,
-  styles: [
-    { elementType: 'labels', stylers: [{ visibility: 'off' }] },
-  ],
-  minZoom: 14,
-  maxZoom: 20,
-};
+const POI_COLORS = [
+  '#f472b6', '#a78bfa', '#38bdf8', '#34d399',
+  '#fb923c', '#f87171', '#facc15', '#a3e635',
+];
 
 interface MapViewProps {
   center: google.maps.LatLngLiteral;
@@ -48,11 +28,6 @@ interface MapViewProps {
   mapRef: React.MutableRefObject<google.maps.Map | null>;
 }
 
-const POI_COLORS = [
-  '#f472b6', '#a78bfa', '#38bdf8', '#34d399',
-  '#fb923c', '#f87171', '#facc15', '#a3e635',
-];
-
 export default function MapView({
   center,
   zoom,
@@ -70,105 +45,177 @@ export default function MapView({
   overlayOpacity,
   mapRef,
 }: MapViewProps) {
-  const handleMapClick = useCallback(
-    (e: google.maps.MapMouseEvent) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const markersRef = useRef<google.maps.Marker[]>([]);
+  const polylinesRef = useRef<google.maps.Polyline[]>([]);
+  const overlayRef = useRef<google.maps.GroundOverlay | null>(null);
+  const mapInitializedRef = useRef(false);
+
+  // Initialize the map
+  useEffect(() => {
+    if (!containerRef.current || mapInitializedRef.current) return;
+    if (!window.google || !window.google.maps) return;
+
+    const map = new google.maps.Map(containerRef.current, {
+      center: center || defaultCenter,
+      zoom: zoom || 17,
+      mapTypeId: 'satellite',
+      disableDefaultUI: false,
+      zoomControl: true,
+      mapTypeControl: false,
+      streetViewControl: false,
+      fullscreenControl: false,
+      styles: [
+        { elementType: 'labels', stylers: [{ visibility: 'off' }] },
+      ],
+      minZoom: 14,
+      maxZoom: 20,
+    });
+
+    mapRef.current = map;
+    mapInitializedRef.current = true;
+    onMapReady(map);
+
+    map.addListener('click', (e: google.maps.MapMouseEvent) => {
       if (e.latLng) {
         onMapClick(e.latLng.lat(), e.latLng.lng());
       }
-    },
-    [onMapClick]
-  );
+    });
 
-  const handleLoad = useCallback(
-    (map: google.maps.Map) => {
-      mapRef.current = map;
-      onMapReady(map);
-    },
-    [mapRef, onMapReady]
-  );
+    map.addListener('bounds_changed', () => {
+      onBoundsChanged();
+    });
+
+    return () => {
+      google.maps.event.clearInstanceListeners(map);
+    };
+  }, []);
+
+  // Update cursor based on mode
+  useEffect(() => {
+    if (!mapRef.current) return;
+    mapRef.current.setOptions({
+      draggableCursor: isAddingPOI ? 'crosshair' : isAddingPath ? 'pointer' : 'grab',
+    });
+  }, [isAddingPOI, isAddingPath, mapRef]);
+
+  // Update click handler reference
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    // Remove old click listener and add new one
+    google.maps.event.clearListeners(mapRef.current, 'click');
+    mapRef.current.addListener('click', (e: google.maps.MapMouseEvent) => {
+      if (e.latLng) {
+        onMapClick(e.latLng.lat(), e.latLng.lng());
+      }
+    });
+  }, [onMapClick]);
+
+  // Update POI markers
+  useEffect(() => {
+    // Clear existing markers
+    markersRef.current.forEach((m) => m.setMap(null));
+    markersRef.current = [];
+
+    if (!mapRef.current) return;
+
+    pois.forEach((poi, index) => {
+      const marker = new google.maps.Marker({
+        position: { lat: poi.lat, lng: poi.lng },
+        map: mapRef.current!,
+        label: {
+          text: poi.label,
+          color: '#ffffff',
+          fontFamily: 'Nunito, sans-serif',
+          fontWeight: 'bold',
+          fontSize: '11px',
+        },
+        icon: {
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 14,
+          fillColor: POI_COLORS[index % POI_COLORS.length],
+          fillOpacity: 0.9,
+          strokeColor: '#ffffff',
+          strokeWeight: 3,
+        },
+        animation:
+          isAddingPath && pathFromPOI === poi.id
+            ? google.maps.Animation.BOUNCE
+            : undefined,
+      });
+
+      marker.addListener('click', () => {
+        onPOIClick(poi.id);
+      });
+
+      markersRef.current.push(marker);
+    });
+  }, [pois, isAddingPath, pathFromPOI, onPOIClick, mapRef]);
+
+  // Update path polylines
+  useEffect(() => {
+    // Clear existing polylines
+    polylinesRef.current.forEach((p) => p.setMap(null));
+    polylinesRef.current = [];
+
+    if (!mapRef.current) return;
+
+    paths.forEach((path) => {
+      if (path.path && path.path.length > 0) {
+        const polyline = new google.maps.Polyline({
+          path: path.path,
+          map: mapRef.current!,
+          strokeColor: path.color || '#facc15',
+          strokeOpacity: 0.9,
+          strokeWeight: 6,
+          icons: [
+            {
+              icon: {
+                path: 'M 0,-1 0,1',
+                strokeOpacity: 1,
+                strokeColor: '#ffffff',
+                scale: 3,
+              },
+              offset: '0',
+              repeat: '20px',
+            },
+          ],
+        });
+        polylinesRef.current.push(polyline);
+      }
+    });
+  }, [paths, mapRef]);
+
+  // Update ground overlay
+  useEffect(() => {
+    // Remove existing overlay
+    if (overlayRef.current) {
+      overlayRef.current.setMap(null);
+      overlayRef.current = null;
+    }
+
+    if (!mapRef.current || !transformResult || !showOverlay) return;
+
+    const bounds = new google.maps.LatLngBounds(
+      { lat: transformResult.bounds.south, lng: transformResult.bounds.west },
+      { lat: transformResult.bounds.north, lng: transformResult.bounds.east }
+    );
+
+    const overlay = new google.maps.GroundOverlay(
+      transformResult.imageUrl,
+      bounds,
+      { opacity: overlayOpacity }
+    );
+
+    overlay.setMap(mapRef.current);
+    overlayRef.current = overlay;
+  }, [transformResult, showOverlay, overlayOpacity, mapRef]);
 
   return (
-    <GoogleMap
-      mapContainerStyle={mapContainerStyle}
-      center={center}
-      zoom={zoom}
-      options={{
-        ...satelliteMapOptions,
-        draggableCursor: isAddingPOI ? 'crosshair' : isAddingPath ? 'pointer' : 'grab',
-      }}
-      onClick={handleMapClick}
-      onLoad={handleLoad}
-      onBoundsChanged={onBoundsChanged}
-    >
-      {/* POI Markers */}
-      {pois.map((poi, index) => (
-        <Marker
-          key={poi.id}
-          position={{ lat: poi.lat, lng: poi.lng }}
-          label={{
-            text: poi.label,
-            color: '#ffffff',
-            fontFamily: 'Nunito, sans-serif',
-            fontWeight: 'bold',
-            fontSize: '11px',
-          }}
-          icon={{
-            path: google.maps.SymbolPath.CIRCLE,
-            scale: 14,
-            fillColor: POI_COLORS[index % POI_COLORS.length],
-            fillOpacity: 0.9,
-            strokeColor: '#ffffff',
-            strokeWeight: 3,
-          }}
-          onClick={() => onPOIClick(poi.id)}
-          animation={
-            isAddingPath && pathFromPOI === poi.id
-              ? google.maps.Animation.BOUNCE
-              : undefined
-          }
-        />
-      ))}
-
-      {/* Path Polylines */}
-      {paths.map((path, index) => (
-        path.path && path.path.length > 0 ? (
-          <Polyline
-            key={path.id}
-            path={path.path}
-            options={{
-              strokeColor: path.color || '#facc15',
-              strokeOpacity: 0.9,
-              strokeWeight: 6,
-              icons: [
-                {
-                  icon: {
-                    path: 'M 0,-1 0,1',
-                    strokeOpacity: 1,
-                    strokeColor: '#ffffff',
-                    scale: 3,
-                  },
-                  offset: '0',
-                  repeat: '20px',
-                },
-              ],
-            }}
-          />
-        ) : null
-      ))}
-
-      {/* Playmat Overlay */}
-      {transformResult && showOverlay && (
-        <GroundOverlay
-          url={transformResult.imageUrl}
-          bounds={{
-            north: transformResult.bounds.north,
-            south: transformResult.bounds.south,
-            east: transformResult.bounds.east,
-            west: transformResult.bounds.west,
-          }}
-          options={{ opacity: overlayOpacity }}
-        />
-      )}
-    </GoogleMap>
+    <div
+      ref={containerRef}
+      style={{ width: '100%', height: '100%' }}
+    />
   );
 }
