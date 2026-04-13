@@ -38,7 +38,7 @@ ZOOM LEVEL NOTE: ${zoomNote}
 ${poiSection}
 ${pathSection}
 
-Transform the provided satellite image following ALL the rules above. The output must look like a premium, hand-illustrated children's play mat/rug that has been professionally manufactured with visible woven carpet texture throughout.`;
+IMPORTANT: You are given a real satellite photograph. Your task is to TRACE over every geographic feature (roads, buildings, water, trees, open space) and re-draw them in the illustrated style described above. The output must preserve the real-world layout exactly while looking like a premium, hand-illustrated children's play mat/rug with visible woven carpet texture throughout. Do NOT invent a new scene — re-illustrate what is actually in the photo.`;
 }
 
 export function buildEnhancePrompt(userIdea: string): string {
